@@ -14,6 +14,14 @@ import { R2_MOUNT_PATH } from '../config';
 const CLI_TIMEOUT_MS = 20000;
 
 /**
+ * Shell-escape a string by wrapping in single quotes and escaping internal single quotes.
+ * This prevents command injection when interpolating values into shell command strings.
+ */
+function shellEscape(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
+/**
  * API routes
  * - /api/admin/* - Protected admin API routes (Cloudflare Access required)
  *
@@ -40,7 +48,7 @@ adminApi.get('/devices', async (c) => {
     // Run OpenClaw CLI to list devices
     // Must specify --url and --token (OpenClaw v2026.2.3 requires explicit credentials with --url)
     const token = c.env.MOLTBOT_GATEWAY_TOKEN;
-    const tokenArg = token ? ` --token ${token}` : '';
+    const tokenArg = token ? ` --token ${shellEscape(token)}` : '';
     const proc = await sandbox.startProcess(
       `openclaw devices list --json --url ws://localhost:18789${tokenArg}`,
     );
@@ -96,9 +104,9 @@ adminApi.post('/devices/:requestId/approve', async (c) => {
 
     // Run OpenClaw CLI to approve the device
     const token = c.env.MOLTBOT_GATEWAY_TOKEN;
-    const tokenArg = token ? ` --token ${token}` : '';
+    const tokenArg = token ? ` --token ${shellEscape(token)}` : '';
     const proc = await sandbox.startProcess(
-      `openclaw devices approve ${requestId} --url ws://localhost:18789${tokenArg}`,
+      `openclaw devices approve ${shellEscape(requestId)} --url ws://localhost:18789${tokenArg}`,
     );
     await waitForProcess(proc, CLI_TIMEOUT_MS);
 
@@ -106,8 +114,8 @@ adminApi.post('/devices/:requestId/approve', async (c) => {
     const stdout = logs.stdout || '';
     const stderr = logs.stderr || '';
 
-    // Check for success indicators (case-insensitive, CLI outputs "Approved ...")
-    const success = stdout.toLowerCase().includes('approved') || proc.exitCode === 0;
+    // Check for success: exitCode === 0 is the primary indicator
+    const success = proc.exitCode === 0;
 
     return c.json({
       success,
@@ -132,7 +140,7 @@ adminApi.post('/devices/approve-all', async (c) => {
 
     // First, get the list of pending devices
     const token = c.env.MOLTBOT_GATEWAY_TOKEN;
-    const tokenArg = token ? ` --token ${token}` : '';
+    const tokenArg = token ? ` --token ${shellEscape(token)}` : '';
     const listProc = await sandbox.startProcess(
       `openclaw devices list --json --url ws://localhost:18789${tokenArg}`,
     );
@@ -164,15 +172,12 @@ adminApi.post('/devices/approve-all', async (c) => {
       try {
         // eslint-disable-next-line no-await-in-loop -- sequential device approval required
         const approveProc = await sandbox.startProcess(
-          `openclaw devices approve ${device.requestId} --url ws://localhost:18789${tokenArg}`,
+          `openclaw devices approve ${shellEscape(device.requestId)} --url ws://localhost:18789${tokenArg}`,
         );
         // eslint-disable-next-line no-await-in-loop
         await waitForProcess(approveProc, CLI_TIMEOUT_MS);
 
-        // eslint-disable-next-line no-await-in-loop
-        const approveLogs = await approveProc.getLogs();
-        const success =
-          approveLogs.stdout?.toLowerCase().includes('approved') || approveProc.exitCode === 0;
+        const success = approveProc.exitCode === 0;
 
         results.push({ requestId: device.requestId, success });
       } catch (err) {

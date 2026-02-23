@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types';
 import { findExistingMoltbotProcess } from '../gateway';
+import { MOLTBOT_PORT } from '../config';
 
 /**
  * Debug routes for inspecting container state
@@ -99,7 +100,6 @@ debug.get('/processes', async (c) => {
 debug.get('/gateway-api', async (c) => {
   const sandbox = c.get('sandbox');
   const path = c.req.query('path') || '/';
-  const MOLTBOT_PORT = 18789;
 
   try {
     const url = `http://localhost:${MOLTBOT_PORT}${path}`;
