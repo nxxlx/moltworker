@@ -68,18 +68,34 @@ export async function ensureMoltbotGateway(sandbox: Sandbox, env: MoltbotEnv): P
       existingProcess.status,
     );
 
-    // Always use full startup timeout - a process can be "running" but not ready yet
-    // (e.g., just started by another concurrent request). Using a shorter timeout
-    // causes race conditions where we kill processes that are still initializing.
+    // Determine how long the process has been alive.
+    // - If it's still within the startup window, give it the remaining startup time.
+    // - If it's older than the startup window, it should already be listening;
+    //   do a short health-check so stale/crashed gateways are detected quickly
+    //   instead of blocking every request for 3 minutes.
+    const processAgeMs = existingProcess.startTime
+      ? Date.now() - existingProcess.startTime.getTime()
+      : STARTUP_TIMEOUT_MS;
+    const remainingStartupMs = Math.max(0, STARTUP_TIMEOUT_MS - processAgeMs);
+    const isStillStartingUp = remainingStartupMs > 0;
+
+    const waitTimeoutMs = isStillStartingUp
+      ? remainingStartupMs
+      : 10_000; // short health-check for already-running processes
+
+    console.log(
+      'Process age:', Math.round(processAgeMs / 1000), 's,',
+      isStillStartingUp ? `still starting up, waiting ${Math.round(remainingStartupMs / 1000)}s` : 'should be ready, health-checking with 10s timeout',
+    );
+
     try {
-      console.log('Waiting for gateway on port', MOLTBOT_PORT, 'timeout:', STARTUP_TIMEOUT_MS);
-      await existingProcess.waitForPort(MOLTBOT_PORT, { mode: 'tcp', timeout: STARTUP_TIMEOUT_MS });
+      await existingProcess.waitForPort(MOLTBOT_PORT, { mode: 'tcp', timeout: waitTimeoutMs });
       console.log('Gateway is reachable');
       return existingProcess;
       // eslint-disable-next-line no-unused-vars
     } catch (_e) {
-      // Timeout waiting for port - process is likely dead or stuck, kill and restart
-      console.log('Existing process not reachable after full timeout, killing and restarting...');
+      // Timeout waiting for port - process is stale/dead, kill and restart
+      console.log('Existing process not reachable, killing and restarting...');
       try {
         await existingProcess.kill();
       } catch (killError) {
