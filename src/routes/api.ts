@@ -114,8 +114,10 @@ adminApi.post('/devices/:requestId/approve', async (c) => {
     const stdout = logs.stdout || '';
     const stderr = logs.stderr || '';
 
-    // Check for success: exitCode === 0 is the primary indicator
-    const success = proc.exitCode === 0;
+    // Check for success indicators (case-insensitive, CLI outputs "Approved ...")
+    // Note: proc.exitCode may not update immediately per sandbox API limitations,
+    // so stdout check is the primary indicator per project guidelines.
+    const success = stdout.toLowerCase().includes('approved') || proc.exitCode === 0;
 
     return c.json({
       success,
@@ -177,7 +179,10 @@ adminApi.post('/devices/approve-all', async (c) => {
         // eslint-disable-next-line no-await-in-loop
         await waitForProcess(approveProc, CLI_TIMEOUT_MS);
 
-        const success = approveProc.exitCode === 0;
+        // eslint-disable-next-line no-await-in-loop
+        const approveLogs = await approveProc.getLogs();
+        const success =
+          approveLogs.stdout?.toLowerCase().includes('approved') || approveProc.exitCode === 0;
 
         results.push({ requestId: device.requestId, success });
       } catch (err) {

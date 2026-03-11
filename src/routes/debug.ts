@@ -125,10 +125,22 @@ debug.get('/gateway-api', async (c) => {
   }
 });
 
+// Allowlisted command prefixes for the debug CLI endpoint
+const ALLOWED_CMD_PREFIXES = ['openclaw ', 'openclaw\t', 'node ', 'node\t'];
+
 // GET /debug/cli - Test OpenClaw CLI commands
 debug.get('/cli', async (c) => {
   const sandbox = c.get('sandbox');
   const cmd = c.req.query('cmd') || 'openclaw --help';
+
+  // Restrict to allowlisted prefixes to prevent command injection
+  const isAllowed =
+    cmd === 'openclaw' ||
+    cmd === 'node' ||
+    ALLOWED_CMD_PREFIXES.some((prefix) => cmd.startsWith(prefix));
+  if (!isAllowed) {
+    return c.json({ error: 'Command not allowed. Only openclaw and node commands are permitted.' }, 400);
+  }
 
   try {
     const proc = await sandbox.startProcess(cmd);
