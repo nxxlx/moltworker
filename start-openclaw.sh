@@ -194,6 +194,30 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
 // so we don't need to patch the provider config. Writing a provider
 // entry without a models array breaks OpenClaw's config validation.
 
+// Remove Ollama providers — Ollama cannot run inside the Cloudflare Sandbox,
+// so any Ollama entries restored from R2 backup will make the gateway unresponsive.
+if (config.models && config.models.providers) {
+    const ollamaProviders = Object.keys(config.models.providers).filter(name => {
+        const p = config.models.providers[name];
+        return name.toLowerCase().includes('ollama') ||
+               (p.baseUrl && p.baseUrl.includes('localhost:11434')) ||
+               (p.baseUrl && p.baseUrl.includes('127.0.0.1:11434')) ||
+               p.api === 'ollama';
+    });
+    for (const name of ollamaProviders) {
+        console.log('Removing incompatible Ollama provider: ' + name);
+        delete config.models.providers[name];
+    }
+    // If default model points to a removed Ollama provider, clear it
+    if (config.agents && config.agents.defaults && config.agents.defaults.model) {
+        const primary = config.agents.defaults.model.primary || '';
+        if (ollamaProviders.some(name => primary.startsWith(name + '/'))) {
+            console.log('Clearing default model that pointed to removed Ollama provider: ' + primary);
+            delete config.agents.defaults.model;
+        }
+    }
+}
+
 // AI Gateway model override (CF_AI_GATEWAY_MODEL=provider/model-id)
 // Adds a provider entry for any AI Gateway provider and sets it as default model.
 // Examples:
