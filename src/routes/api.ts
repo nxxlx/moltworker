@@ -294,8 +294,18 @@ adminApi.post('/gateway/restart', async (c) => {
       } catch (killErr) {
         console.error('Error killing process:', killErr);
       }
-      // Wait a moment for the process to die
-      await new Promise((r) => setTimeout(r, 2000));
+      // Wait for the process to fully die before starting a new one.
+      // start-openclaw.sh uses `pgrep -f "openclaw gateway"` and exits early
+      // if it detects a running process, so we must ensure the old one is gone.
+      for (let i = 0; i < 5; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const zombie = await findExistingMoltbotProcess(sandbox);
+        if (!zombie) {
+          console.log('Old process confirmed dead after', (i + 1) * 2, 'seconds');
+          break;
+        }
+        console.log('Old process still alive, waiting... attempt', i + 1);
+      }
     }
 
     // Start a new gateway in the background
