@@ -301,6 +301,13 @@ echo "Gateway will be available on port 18789"
 rm -f /tmp/openclaw-gateway.lock 2>/dev/null || true
 rm -f "$CONFIG_DIR/gateway.lock" 2>/dev/null || true
 
+# Kill any process holding port 18789
+if lsof -ti:18789 >/dev/null 2>&1; then
+    echo "Port 18789 is in use, killing existing process..."
+    kill $(lsof -ti:18789) 2>/dev/null || true
+    sleep 1
+fi
+
 echo "Dev mode: ${OPENCLAW_DEV_MODE:-false}"
 
 if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
