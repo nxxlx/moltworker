@@ -194,57 +194,56 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
 // so we don't need to patch the provider config. Writing a provider
 // entry without a models array breaks OpenClaw's config validation.
 
-// Remove Ollama providers — Ollama cannot run inside the Cloudflare Sandbox,
-// so any Ollama entries restored from R2 backup will make the gateway unresponsive.
+// Remove Gemma models from providers — Gemma 3 (via Ollama) cannot run inside
+// the Cloudflare Sandbox, so any Gemma entries restored from R2 backup will
+// make the gateway unresponsive when selected as default model.
 if (config.models && config.models.providers) {
-    const ollamaProviders = Object.keys(config.models.providers).filter(name => {
-        const p = config.models.providers[name];
-        return name.toLowerCase().includes('ollama') ||
-               (p.baseUrl && p.baseUrl.includes('localhost:11434')) ||
-               (p.baseUrl && p.baseUrl.includes('127.0.0.1:11434')) ||
-               p.api === 'ollama';
-    });
-    for (const name of ollamaProviders) {
-        console.log('Removing incompatible Ollama provider: ' + name);
-        delete config.models.providers[name];
+    // Remove Gemma models from each provider's model list
+    for (const [provName, prov] of Object.entries(config.models.providers)) {
+        if (prov.models && Array.isArray(prov.models)) {
+            const before = prov.models.length;
+            prov.models = prov.models.filter(m => {
+                const id = (m.id || '').toLowerCase();
+                const name = (m.name || '').toLowerCase();
+                const isGemma = id.includes('gemma') || name.includes('gemma');
+                if (isGemma) console.log('Removing Gemma model "' + m.id + '" from provider "' + provName + '"');
+                return !isGemma;
+            });
+            // If provider has no models left, remove the entire provider
+            if (prov.models.length === 0 && before > 0) {
+                console.log('Provider "' + provName + '" has no models left after removing Gemma, removing provider');
+                delete config.models.providers[provName];
+            }
+        }
     }
-    // If default model points to a removed Ollama provider, clear it
+
+    // Helper: check if a model string references Gemma
+    const isGemmaModel = (modelStr) => {
+        if (!modelStr || typeof modelStr !== 'string') return false;
+        return modelStr.toLowerCase().includes('gemma');
+    };
+
+    // Clean default agent model if it references Gemma
     if (config.agents && config.agents.defaults && config.agents.defaults.model) {
-        const primary = config.agents.defaults.model.primary || '';
-        if (ollamaProviders.some(name => primary.startsWith(name + '/'))) {
-            console.log('Clearing default model that pointed to removed Ollama provider: ' + primary);
+        const m = config.agents.defaults.model;
+        if (isGemmaModel(m.primary) || isGemmaModel(m.secondary) || isGemmaModel(m.fallback)) {
+            console.log('Clearing default model that referenced Gemma:', JSON.stringify(m));
             delete config.agents.defaults.model;
         }
     }
-    // After removing Ollama, ensure at least one cloud provider exists.
-    // If no providers remain, add one from available env vars so the gateway
-    // has a working model to fall back to.
-    const remainingProviders = Object.keys(config.models.providers);
-    if (ollamaProviders.length > 0 && remainingProviders.length === 0) {
-        console.log('No providers left after removing Ollama, adding cloud provider from env...');
-        if (process.env.ANTHROPIC_API_KEY) {
-            config.models.providers['anthropic'] = {
-                apiKey: process.env.ANTHROPIC_API_KEY,
-                api: 'anthropic-messages',
-                models: [{ id: 'claude-sonnet-4-5-20241022', name: 'Claude Sonnet 4.5', contextWindow: 200000, maxTokens: 8192 }],
-            };
-            if (process.env.ANTHROPIC_BASE_URL) {
-                config.models.providers['anthropic'].baseUrl = process.env.ANTHROPIC_BASE_URL;
+
+    // Clean per-agent model overrides referencing Gemma
+    if (config.agents) {
+        for (const [agentName, agent] of Object.entries(config.agents)) {
+            if (agentName === 'defaults' || !agent || typeof agent !== 'object') continue;
+            if (agent.model) {
+                const m = agent.model;
+                const mStr = typeof m === 'string' ? m : '';
+                if (isGemmaModel(mStr) || isGemmaModel(m.primary) || isGemmaModel(m.secondary) || isGemmaModel(m.fallback)) {
+                    console.log('Clearing agent "' + agentName + '" model that referenced Gemma');
+                    delete agent.model;
+                }
             }
-            config.agents = config.agents || {};
-            config.agents.defaults = config.agents.defaults || {};
-            config.agents.defaults.model = { primary: 'anthropic/claude-sonnet-4-5-20241022' };
-            console.log('Added Anthropic provider as fallback');
-        } else if (process.env.OPENAI_API_KEY) {
-            config.models.providers['openai'] = {
-                apiKey: process.env.OPENAI_API_KEY,
-                api: 'openai-completions',
-                models: [{ id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128000, maxTokens: 4096 }],
-            };
-            config.agents = config.agents || {};
-            config.agents.defaults = config.agents.defaults || {};
-            config.agents.defaults.model = { primary: 'openai/gpt-4o' };
-            console.log('Added OpenAI provider as fallback');
         }
     }
 }
