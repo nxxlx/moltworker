@@ -285,6 +285,14 @@ console.log('Configuration patched successfully');
 EOFPATCH
 
 # ============================================================
+# CLEAN UP STALE SESSIONS
+# ============================================================
+echo "Cleaning up stale sessions..."
+openclaw sessions prune --force 2>/dev/null || \
+    openclaw sessions clear --force 2>/dev/null || \
+    echo "Session cleanup command not available, skipping"
+
+# ============================================================
 # START GATEWAY
 # ============================================================
 echo "Starting OpenClaw Gateway..."
