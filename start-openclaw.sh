@@ -216,6 +216,37 @@ if (config.models && config.models.providers) {
             delete config.agents.defaults.model;
         }
     }
+    // After removing Ollama, ensure at least one cloud provider exists.
+    // If no providers remain, add one from available env vars so the gateway
+    // has a working model to fall back to.
+    const remainingProviders = Object.keys(config.models.providers);
+    if (ollamaProviders.length > 0 && remainingProviders.length === 0) {
+        console.log('No providers left after removing Ollama, adding cloud provider from env...');
+        if (process.env.ANTHROPIC_API_KEY) {
+            config.models.providers['anthropic'] = {
+                apiKey: process.env.ANTHROPIC_API_KEY,
+                api: 'anthropic-messages',
+                models: [{ id: 'claude-sonnet-4-5-20241022', name: 'Claude Sonnet 4.5', contextWindow: 200000, maxTokens: 8192 }],
+            };
+            if (process.env.ANTHROPIC_BASE_URL) {
+                config.models.providers['anthropic'].baseUrl = process.env.ANTHROPIC_BASE_URL;
+            }
+            config.agents = config.agents || {};
+            config.agents.defaults = config.agents.defaults || {};
+            config.agents.defaults.model = { primary: 'anthropic/claude-sonnet-4-5-20241022' };
+            console.log('Added Anthropic provider as fallback');
+        } else if (process.env.OPENAI_API_KEY) {
+            config.models.providers['openai'] = {
+                apiKey: process.env.OPENAI_API_KEY,
+                api: 'openai-completions',
+                models: [{ id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128000, maxTokens: 4096 }],
+            };
+            config.agents = config.agents || {};
+            config.agents.defaults = config.agents.defaults || {};
+            config.agents.defaults.model = { primary: 'openai/gpt-4o' };
+            console.log('Added OpenAI provider as fallback');
+        }
+    }
 }
 
 // AI Gateway model override (CF_AI_GATEWAY_MODEL=provider/model-id)
