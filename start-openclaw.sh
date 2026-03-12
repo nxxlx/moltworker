@@ -194,60 +194,6 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
 // so we don't need to patch the provider config. Writing a provider
 // entry without a models array breaks OpenClaw's config validation.
 
-// Remove Gemma models from providers — Gemma 3 (via Ollama) cannot run inside
-// the Cloudflare Sandbox, so any Gemma entries restored from R2 backup will
-// make the gateway unresponsive when selected as default model.
-if (config.models && config.models.providers) {
-    // Remove Gemma models from each provider's model list
-    for (const [provName, prov] of Object.entries(config.models.providers)) {
-        if (prov.models && Array.isArray(prov.models)) {
-            const before = prov.models.length;
-            prov.models = prov.models.filter(m => {
-                const id = (m.id || '').toLowerCase();
-                const name = (m.name || '').toLowerCase();
-                const isGemma = id.includes('gemma') || name.includes('gemma');
-                if (isGemma) console.log('Removing Gemma model "' + m.id + '" from provider "' + provName + '"');
-                return !isGemma;
-            });
-            // If provider has no models left, remove the entire provider
-            if (prov.models.length === 0 && before > 0) {
-                console.log('Provider "' + provName + '" has no models left after removing Gemma, removing provider');
-                delete config.models.providers[provName];
-            }
-        }
-    }
-
-    // Helper: check if a model string references Gemma
-    const isGemmaModel = (modelStr) => {
-        if (!modelStr || typeof modelStr !== 'string') return false;
-        return modelStr.toLowerCase().includes('gemma');
-    };
-
-    // Clean default agent model if it references Gemma
-    if (config.agents && config.agents.defaults && config.agents.defaults.model) {
-        const m = config.agents.defaults.model;
-        if (isGemmaModel(m.primary) || isGemmaModel(m.secondary) || isGemmaModel(m.fallback)) {
-            console.log('Clearing default model that referenced Gemma:', JSON.stringify(m));
-            delete config.agents.defaults.model;
-        }
-    }
-
-    // Clean per-agent model overrides referencing Gemma
-    if (config.agents) {
-        for (const [agentName, agent] of Object.entries(config.agents)) {
-            if (agentName === 'defaults' || !agent || typeof agent !== 'object') continue;
-            if (agent.model) {
-                const m = agent.model;
-                const mStr = typeof m === 'string' ? m : '';
-                if (isGemmaModel(mStr) || isGemmaModel(m.primary) || isGemmaModel(m.secondary) || isGemmaModel(m.fallback)) {
-                    console.log('Clearing agent "' + agentName + '" model that referenced Gemma');
-                    delete agent.model;
-                }
-            }
-        }
-    }
-}
-
 // AI Gateway model override (CF_AI_GATEWAY_MODEL=provider/model-id)
 // Adds a provider entry for any AI Gateway provider and sets it as default model.
 // Examples:
